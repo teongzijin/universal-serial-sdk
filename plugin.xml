@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+    id="universal-serial-sdk"
+    version="0.1.0">
+
+    <name>UniversalSerialSDK</name>
+    <description>Universal Serial Stream SDK - Modular serial communication for Capacitor, Cordova, Node.js, Electron and Web Serial API.</description>
+    <license>ISC</license>
+    <keywords>serial, rs485, uart, iot, industrial</keywords>
+
+    <engines>
+        <engine name="cordova-android" version=">=9.0.0" />
+    </engines>
+
+    <platform name="android">
+        <!-- Copy SerialPlugin.java into the Cordova project -->
+        <source-file
+            src="android/src/main/java/com/universalserialsdk/SerialPlugin.java"
+            target-dir="src/com/universalserialsdk" />
+
+        <!-- Register the plugin in AndroidManifest via Cordova framework -->
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="SerialPlugin">
+                <param name="android-package" value="com.universalserialsdk.SerialPlugin" />
+            </feature>
+        </config-file>
+    </platform>
+</plugin>

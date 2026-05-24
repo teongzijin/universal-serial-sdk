@@ -1,0 +1,51 @@
+{
+  "name": "universal-serial-sdk",
+  "version": "0.1.0",
+  "description": "Industrial-grade universal serial stream SDK with modular bridges and protocol drivers. Supports Capacitor Android (UART), Cordova Android, Node.js Linux/Windows, Electron, and Web Serial API.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"No tests yet\"",
+    "postinstall": "node scripts/install.cjs"
+  },
+  "keywords": [
+    "serial",
+    "serialport",
+    "rs485",
+    "uart",
+    "capacitor",
+    "cordova",
+    "electron",
+    "nodejs",
+    "iot",
+    "android",
+    "linux",
+    "windows",
+    "hardware",
+    "stream-parser",
+    "locker",
+    "industrial"
+  ],
+  "author": "Teong Zi Jin",
+  "license": "ISC",
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "cordova": {
+    "id": "universal-serial-sdk",
+    "platforms": ["android"]
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@capacitor/core": {
+      "optional": true
+    },
+    "serialport": {
+      "optional": true
+    }
+  }
+}
