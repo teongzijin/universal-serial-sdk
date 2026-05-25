@@ -22,7 +22,7 @@ function findProjectRoot() {
     return null;
 }
 
-const projectRoot    = findProjectRoot();
+const projectRoot     = findProjectRoot();
 const rootBuildGradle = projectRoot ? path.join(projectRoot, 'android', 'build.gradle') : null;
 const appBuildGradle  = projectRoot ? path.join(projectRoot, 'android', 'app', 'build.gradle') : null;
 const settingsGradle  = projectRoot ? path.join(projectRoot, 'android', 'settings.gradle') : null;
@@ -55,6 +55,9 @@ if (os.platform() === 'win32') {
 if (!projectRoot) {
     console.log(TAG + ' No android/ folder found, skipping Gradle setup.');
     console.log(TAG + ' JS SDK ready. Import from universal-serial-sdk.');
+
+    // Still try to copy to www/ if it exists (e.g. Cordova web-only setup)
+    copyToWww();
     process.exit(0);
 }
 
@@ -64,7 +67,7 @@ console.log(TAG + ' Found project root: ' + projectRoot);
 const jitpack = "        maven { url 'https://jitpack.io' }";
 let jitpackAdded = false;
 
-// Try settings.gradle first - look for dependencyResolutionManagement > repositories
+// Try settings.gradle first (newer Capacitor/Cordova projects)
 if (fs.existsSync(settingsGradle)) {
     try {
         let content = fs.readFileSync(settingsGradle, 'utf8');
@@ -72,7 +75,6 @@ if (fs.existsSync(settingsGradle)) {
             console.log(TAG + ' JitPack already present in android/settings.gradle, skipped.');
             jitpackAdded = true;
         } else if (content.includes('dependencyResolutionManagement')) {
-            // New AGP style - patch settings.gradle
             const lines = content.split('\n');
             let inDRM = false, inRepo = false, depth = 0, insertAt = -1;
             for (let i = 0; i < lines.length; i++) {
@@ -97,7 +99,7 @@ if (fs.existsSync(settingsGradle)) {
     }
 }
 
-// Try build.gradle - look for allprojects > repositories
+// Try build.gradle (older projects)
 if (!jitpackAdded && fs.existsSync(rootBuildGradle)) {
     try {
         let content = fs.readFileSync(rootBuildGradle, 'utf8');
@@ -105,7 +107,6 @@ if (!jitpackAdded && fs.existsSync(rootBuildGradle)) {
             console.log(TAG + ' JitPack already present in android/build.gradle, skipped.');
             jitpackAdded = true;
         } else if (content.includes('allprojects')) {
-            // Line-by-line approach to find allprojects > repositories {
             const lines = content.split('\n');
             let inAll = false, inRepo = false, depth = 0, insertAt = -1;
             for (let i = 0; i < lines.length; i++) {
@@ -173,9 +174,51 @@ if (fs.existsSync(appBuildGradle)) {
     anyFailed = true;
 }
 
+// ── 3. Copy SDK src to www/sdk (Capacitor & Cordova) ─────────────────────────
+copyToWww();
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 if (anyFailed) {
     console.warn(TAG + ' Some steps could not complete automatically. Check warnings above.');
 } else {
     console.log(TAG + ' Setup complete! Run: npx cap sync');
+}
+
+// ── Helper: copy src/ to www/sdk/ ─────────────────────────────────────────────
+function copyToWww() {
+    if (!projectRoot) return;
+
+    const wwwDir = path.join(projectRoot, 'www');
+    const wwwSdk = path.join(wwwDir, 'sdk');
+    const sdkSrc = path.join(__dirname, '..', 'src');
+
+    if (!fs.existsSync(wwwDir)) {
+        console.log(TAG + ' No www/ folder found, skipping SDK copy.');
+        console.log(TAG + '    Node.js/Electron users: import directly from node_modules.');
+        return;
+    }
+
+    try {
+        copyDirSync(sdkSrc, wwwSdk);
+        console.log(TAG + ' Copied SDK src to www/sdk/');
+        console.log(TAG + '    Use in your HTML:');
+        console.log(TAG + '    import { UniversalSerialClient, CapacitorAndroidBridge, SampleLockerDriver }');
+        console.log(TAG + "        from './sdk/index.js';");
+    } catch (e) {
+        console.warn(TAG + ' Failed to copy SDK to www/sdk/: ' + e.message);
+    }
+}
+
+function copyDirSync(src, dest) {
+    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath  = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+            copyDirSync(srcPath, destPath);
+        } else {
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
 }
