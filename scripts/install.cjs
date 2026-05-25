@@ -5,10 +5,34 @@ const { execSync } = require('child_process');
 
 const TAG = '[universal-serial-sdk]';
 
-// Resolve the user's project root (3 levels up from node_modules/universal-serial-sdk/scripts/)
-const projectRoot    = path.resolve(__dirname, '../../..');
-const rootBuildGradle = path.join(projectRoot, 'android', 'build.gradle');
-const appBuildGradle  = path.join(projectRoot, 'android', 'app', 'build.gradle');
+// ── Find project root ─────────────────────────────────────────────────────────
+// Handles multiple install scenarios:
+// 1. npm install (registry):     node_modules/universal-serial-sdk/scripts/ → 3 levels up
+// 2. npm install <local path>:   npm sets INIT_CWD to where npm install was run
+// 3. npm link:                   symlink, __dirname may point to original location
+function findProjectRoot() {
+    const candidates = [
+        // Most reliable: npm sets INIT_CWD to the directory where npm install was run
+        process.env.INIT_CWD,
+        // Standard registry install: node_modules/pkg/scripts/ → 3 levels up
+        path.resolve(__dirname, '../../..'),
+        // Flattened or linked
+        path.resolve(__dirname, '../..'),
+        // Current working directory fallback
+        process.cwd(),
+    ].filter(Boolean); // remove undefined/null
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(path.join(candidate, 'android'))) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+const projectRoot     = findProjectRoot();
+const rootBuildGradle = projectRoot ? path.join(projectRoot, 'android', 'build.gradle') : null;
+const appBuildGradle  = projectRoot ? path.join(projectRoot, 'android', 'app', 'build.gradle') : null;
 
 let anyFailed = false;
 
@@ -25,7 +49,6 @@ if (os.platform() === 'win32') {
 
     if (!hasBuildTools) {
         try {
-            // Check for cl.exe (Visual C++ compiler) in common install paths
             execSync('where cl.exe', { stdio: 'ignore' });
             hasBuildTools = true;
         } catch (e) {}
@@ -48,20 +71,51 @@ if (os.platform() === 'win32') {
     }
 }
 
-// ── Android Gradle Patching (Capacitor projects only) ─────────────────────────
-// Skip if not a Capacitor/Cordova project (no android/ folder)
-if (!fs.existsSync(path.join(projectRoot, 'android'))) {
+// ── Android Gradle Patching (Capacitor/Cordova projects only) ─────────────────
+if (!projectRoot) {
     console.log(`${TAG} No android/ folder found, skipping Gradle setup.`);
     console.log(`${TAG} ✅ JS SDK ready. Import from 'universal-serial-sdk'.`);
     process.exit(0);
 }
 
-// ── 1. Add JitPack to android/build.gradle ───────────────────────────────────
-if (fs.existsSync(rootBuildGradle)) {
+console.log(`${TAG} Found project root: ${projectRoot}`);
+
+// ── Also handle settings.gradle (newer AGP uses this instead of build.gradle) ─
+const settingsGradle = path.join(projectRoot, 'android', 'settings.gradle');
+
+// ── 1. Add JitPack ────────────────────────────────────────────────────────────
+const jitpack = `        maven { url 'https://jitpack.io' }`;
+
+// Try settings.gradle first (newer Capacitor projects)
+if (fs.existsSync(settingsGradle)) {
+    try {
+        let content = fs.readFileSync(settingsGradle, 'utf8');
+        if (content.includes('jitpack.io')) {
+            console.log(`${TAG} JitPack already present in android/settings.gradle, skipped.`);
+        } else {
+            // Try dependencyResolutionManagement > repositories
+            let patched = content.replace(
+                /(dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{)/,
+                `$1\n${jitpack}`
+            );
+            if (patched !== content) {
+                fs.writeFileSync(settingsGradle, patched, 'utf8');
+                console.log(`${TAG} ✅ Added JitPack to android/settings.gradle`);
+            } else {
+                console.warn(`${TAG} ⚠️  Could not auto-patch android/settings.gradle.`);
+                console.warn(`${TAG}    Please add manually inside dependencyResolutionManagement > repositories:`);
+                console.warn(`${TAG}    ${jitpack}`);
+                anyFailed = true;
+            }
+        }
+    } catch (e) {
+        console.warn(`${TAG} ⚠️  Failed to patch android/settings.gradle: ${e.message}`);
+        anyFailed = true;
+    }
+} else if (fs.existsSync(rootBuildGradle)) {
+    // Fallback: try build.gradle (older projects)
     try {
         let content = fs.readFileSync(rootBuildGradle, 'utf8');
-        const jitpack = `        maven { url 'https://jitpack.io' }`;
-
         if (content.includes('jitpack.io')) {
             console.log(`${TAG} JitPack already present in android/build.gradle, skipped.`);
         } else {
@@ -69,14 +123,14 @@ if (fs.existsSync(rootBuildGradle)) {
                 /(allprojects\s*\{[\s\S]*?repositories\s*\{)/,
                 `$1\n${jitpack}`
             );
-            if (patched === content) {
-                console.warn(`${TAG} ⚠️  Could not locate allprojects > repositories in android/build.gradle.`);
+            if (patched !== content) {
+                fs.writeFileSync(rootBuildGradle, patched, 'utf8');
+                console.log(`${TAG} ✅ Added JitPack to android/build.gradle`);
+            } else {
+                console.warn(`${TAG} ⚠️  Could not auto-patch android/build.gradle.`);
                 console.warn(`${TAG}    Please add manually inside allprojects > repositories:`);
                 console.warn(`${TAG}    ${jitpack}`);
                 anyFailed = true;
-            } else {
-                fs.writeFileSync(rootBuildGradle, patched, 'utf8');
-                console.log(`${TAG} ✅ Added JitPack to android/build.gradle`);
             }
         }
     } catch (e) {
@@ -84,7 +138,7 @@ if (fs.existsSync(rootBuildGradle)) {
         anyFailed = true;
     }
 } else {
-    console.warn(`${TAG} ⚠️  android/build.gradle not found.`);
+    console.warn(`${TAG} ⚠️  Neither android/settings.gradle nor android/build.gradle found.`);
     anyFailed = true;
 }
 
@@ -101,14 +155,14 @@ if (fs.existsSync(appBuildGradle)) {
                 /(dependencies\s*\{)/,
                 `$1\n${dep}`
             );
-            if (patched === content) {
+            if (patched !== content) {
+                fs.writeFileSync(appBuildGradle, patched, 'utf8');
+                console.log(`${TAG} ✅ Added Android-SerialPort-API to android/app/build.gradle`);
+            } else {
                 console.warn(`${TAG} ⚠️  Could not locate dependencies block in android/app/build.gradle.`);
                 console.warn(`${TAG}    Please add manually inside dependencies {}:`);
                 console.warn(`${TAG}    ${dep}`);
                 anyFailed = true;
-            } else {
-                fs.writeFileSync(appBuildGradle, patched, 'utf8');
-                console.log(`${TAG} ✅ Added Android-SerialPort-API to android/app/build.gradle`);
             }
         }
     } catch (e) {
